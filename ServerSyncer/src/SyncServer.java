@@ -33,6 +33,8 @@ public class SyncServer {
     //Fill with the path of the parent folder to the world
     //Is directory independent. Feel free to use parent directory.
 
+    private static String checkedOutBy = null;
+
     private static String hmacSha256(String key, long timestamp) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
@@ -132,6 +134,10 @@ public class SyncServer {
     static class GetFolderHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+            if (checkedOutBy != null) {
+                sendError(exchange, "World is currently checked out by " + checkedOutBy);
+                return;
+            }
             JsonObject req = parseJson(exchange);
 
             if(req == null){
@@ -153,12 +159,14 @@ public class SyncServer {
                 zipFolder(FOLDER_PATH.toFile(), tempZip.toFile());
 
                 byte[] zipBytes = Files.readAllBytes(tempZip);
+                checkedOutBy = user;
                 sendBytes(exchange, zipBytes);
 
                 System.out.println("[" + user + "] GET completed.");
             } catch (Exception e) {
                 e.printStackTrace();
                 sendError(exchange, "Server error");
+                checkedOutBy = null;
             } finally {
                 try {
                     Files.deleteIfExists(tempZip);
@@ -176,6 +184,11 @@ public class SyncServer {
 
             if (user == null || signature == null || timestampStr == null) {
                 sendError(exchange, "Missing headers");
+                return;
+            }
+
+            if (!user.equals(checkedOutBy)) {
+                sendError(exchange, "World is not checked out by you");
                 return;
             }
 
@@ -206,6 +219,7 @@ public class SyncServer {
                 deleteDirectoryContents(FOLDER_PATH);
                 moveDirectoryContents(tempUnzipDir, FOLDER_PATH);
 
+                checkedOutBy = null;
                 sendOk(exchange);
                 System.out.println("[" + user + "] PUT completed.");
             } catch (Exception e) {
